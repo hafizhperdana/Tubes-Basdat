@@ -42,8 +42,8 @@ Faker source used for non-CSV fields: Python Faker package with locales derived 
 | Kontrak | 3553 |
 | Grand_prix | 1125 |
 | Sesi | 1485 |
-| Balapan | 26668 |
-| Penghargaan | 2032 |
+| Balapan | 5000 |
+| Penghargaan | 733 |
 | Spesialisasi_marshal | 240 |
 | Menjaga | 4095 |
 

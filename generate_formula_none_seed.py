@@ -17,6 +17,7 @@ if VENDOR_DIR.exists():
 OUT_SQL = BASE_DIR / "formula_none_seed.sql"
 OUT_MD = BASE_DIR / "formula_none_data_sources.md"
 SEED = 20260509
+BALAPAN_ROW_LIMIT = 5000
 RNG = random.Random(SEED)
 
 try:
@@ -648,7 +649,7 @@ def build_seed_data() -> tuple[dict[str, list[tuple]], dict[str, int]]:
                 )
             )
 
-    balapan_map: dict[tuple[str, str], tuple[tuple, tuple[float, int, int]]] = {}
+    balapan_map: dict[tuple[str, str], tuple[tuple, tuple[float, int, int], tuple[int, int, int]]] = {}
     for row in results:
         driver_id = clean(row.get("driverId"))
         race_id = clean(row.get("raceId"))
@@ -666,10 +667,16 @@ def build_seed_data() -> tuple[dict[str, list[tuple]], dict[str, int]]:
         key = (racer_name, gp_name)
         output_row = (racer_name, gp_name, position, time_text, points)
         score = (float(points), -(position or 999), laps)
+        race = races_by_id.get(race_id)
+        race_year = int_or_none(race.get("year")) if race is not None else None
+        race_round = int_or_none(race.get("round")) if race is not None else None
+        result_id = int_or_none(row.get("resultId")) or 0
+        sort_key = (race_year or 0, race_round or 0, result_id)
         if key not in balapan_map or score > balapan_map[key][1]:
-            balapan_map[key] = (output_row, score)
-    balapan_rows = sorted((item[0] for item in balapan_map.values()), key=lambda row: (row[1], row[2] or 999, row[0]))
-    balapan_keys = set(balapan_map)
+            balapan_map[key] = (output_row, score, sort_key)
+    selected_balapan = sorted(balapan_map.values(), key=lambda item: item[2], reverse=True)[:BALAPAN_ROW_LIMIT]
+    balapan_rows = sorted((item[0] for item in selected_balapan), key=lambda row: (row[1], row[2] or 999, row[0]))
+    balapan_keys = {(row[0], row[1]) for row in balapan_rows}
 
     awards: set[tuple[str, str, str, str]] = set()
     for row in results:
