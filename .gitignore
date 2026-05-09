@@ -1,0 +1,25 @@
+# Python virtual environments and local package installs
+.venv/
+.venv-*/
+venv/
+env/
+.vendor/
+
+# Python caches
+__pycache__/
+*.py[cod]
+
+# Local environment/config files
+.env
+.env.*
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Database/runtime dumps that should not be committed accidentally
+*.log
+*.tmp
+*.bak
