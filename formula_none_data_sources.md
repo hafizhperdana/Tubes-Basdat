@@ -20,7 +20,7 @@ Faker source used for non-CSV fields: Python Faker package with locales derived 
 | Grand_prix | Tersedia | Dari `races.name`, `races.year`, dan `races.circuitId`. |
 | Sesi | Tersedia sebagian | `races.csv` punya tanggal/jam FP, kualifikasi, sprint, dan race; durasi sesi dibuat sintetis standar. |
 | Balapan | Tersedia | Dari `results.csv`, join ke `drivers.csv` dan `races.csv`. |
-| Penghargaan | Tidak eksplisit | Diinfer dari `results.csv` dan `qualifying.csv`: pemenang balapan, fastest lap, dan pole position. |
+| Penghargaan | Tidak eksplisit | Diinfer dari `results.csv`: fastest lap, driver of the day, dan most positions gained. |
 | Marshal | Tidak tersedia | Dibuat dengan Faker/fallback sintetis. |
 | Spesialisasi_marshal | Tidak tersedia | Dibuat sintetis dari daftar spesialisasi marshal. |
 | Menjaga | Tidak tersedia | Dibuat sintetis dengan memasangkan marshal ke sesi. |
@@ -39,13 +39,13 @@ Faker source used for non-CSV fields: Python Faker package with locales derived 
 | Pembalap_aktif | 53 |
 | Pembalap_pensiun | 808 |
 | Memasok | 946 |
-| Kontrak | 3553 |
-| Grand_prix | 1125 |
-| Sesi | 1485 |
-| Balapan | 5000 |
-| Penghargaan | 733 |
+| Kontrak | 1000 |
+| Grand_prix | 1000 |
+| Sesi | 1000 |
+| Balapan | 1000 |
+| Penghargaan | 149 |
 | Spesialisasi_marshal | 240 |
-| Menjaga | 4095 |
+| Menjaga | 1000 |
 
 ## Import Order
 

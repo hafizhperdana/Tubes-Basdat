@@ -17,7 +17,8 @@ if VENDOR_DIR.exists():
 OUT_SQL = BASE_DIR / "formula_none_seed.sql"
 OUT_MD = BASE_DIR / "formula_none_data_sources.md"
 SEED = 20260509
-BALAPAN_ROW_LIMIT = 5000
+MAX_ROWS_PER_TABLE = 1000
+BALAPAN_ROW_LIMIT = MAX_ROWS_PER_TABLE
 RNG = random.Random(SEED)
 
 try:
@@ -435,10 +436,16 @@ def build_seed_data() -> tuple[dict[str, list[tuple]], dict[str, int]]:
 
     gp_names: dict[str, str] = {}
     gp_counts: dict[str, int] = defaultdict(int)
+    race_sort_keys: dict[str, tuple[int, int, int]] = {}
     for race in races:
         race_id = clean(race.get("raceId"))
         if race_id is None:
             continue
+        race_sort_keys[race_id] = (
+            int_or_none(race.get("year")) or 0,
+            int_or_none(race.get("round")) or 0,
+            int_or_none(race_id) or 0,
+        )
         base = f"{clean(race.get('year'))} {clean(race.get('name')) or 'Grand Prix'}"
         gp_counts[base] += 1
         if gp_counts[base] > 1:
@@ -610,9 +617,10 @@ def build_seed_data() -> tuple[dict[str, list[tuple]], dict[str, int]]:
         racer_name = driver_names.get(driver_id)
         if team_name is not None and racer_name is not None:
             contract_set.add((team_name, racer_name, year))
-    kontrak_rows = sorted(contract_set, key=lambda row: (row[2], row[0], row[1]))
+    kontrak_rows = sorted(contract_set, key=lambda row: (row[2], row[0], row[1]), reverse=True)[:MAX_ROWS_PER_TABLE]
+    kontrak_rows = sorted(kontrak_rows, key=lambda row: (row[2], row[0], row[1]))
 
-    grand_prix_rows = []
+    grand_prix_candidates = []
     for race in races:
         race_id = clean(race.get("raceId"))
         circuit_id = clean(race.get("circuitId"))
@@ -621,7 +629,10 @@ def build_seed_data() -> tuple[dict[str, list[tuple]], dict[str, int]]:
             continue
         circuit_name = circuit_names.get(circuit_id)
         if circuit_name is not None:
-            grand_prix_rows.append((gp_names[race_id], circuit_name, year))
+            grand_prix_candidates.append(((gp_names[race_id], circuit_name, year), race_sort_keys[race_id]))
+    selected_grand_prix = sorted(grand_prix_candidates, key=lambda item: item[1], reverse=True)[:MAX_ROWS_PER_TABLE]
+    grand_prix_rows = sorted((item[0] for item in selected_grand_prix), key=lambda row: (row[2], row[0]))
+    selected_gp_names = {row[0] for row in grand_prix_rows}
 
     session_specs = [
         ("FP1", "fp1_date", "fp1_time", 60),
@@ -631,23 +642,27 @@ def build_seed_data() -> tuple[dict[str, list[tuple]], dict[str, int]]:
         ("Sprint", "sprint_date", "sprint_time", 30),
         ("Race", "date", "time", 120),
     ]
-    sesi_rows = []
+    sesi_candidates = []
+    session_order = {name: index for index, (name, *_rest) in enumerate(session_specs)}
     for race in races:
         race_id = clean(race.get("raceId"))
         if race_id is None:
             continue
         gp_name = gp_names[race_id]
+        if gp_name not in selected_gp_names:
+            continue
         for session_name, date_col, time_col, duration in session_specs:
             if session_name != "Race" and clean(race.get(date_col)) is None:
                 continue
-            sesi_rows.append(
-                (
-                    session_name,
-                    gp_name,
-                    datetime_value(race.get(date_col), race.get(time_col)),
-                    duration,
-                )
+            row = (
+                session_name,
+                gp_name,
+                datetime_value(race.get(date_col), race.get(time_col)),
+                duration,
             )
+            sesi_candidates.append((row, (*race_sort_keys[race_id], -session_order[session_name])))
+    selected_sesi = sorted(sesi_candidates, key=lambda item: item[1], reverse=True)[:MAX_ROWS_PER_TABLE]
+    sesi_rows = sorted((item[0] for item in selected_sesi), key=lambda row: (row[1], session_order[row[0]]))
 
     balapan_map: dict[tuple[str, str], tuple[tuple, tuple[float, int, int], tuple[int, int, int]]] = {}
     for row in results:
@@ -659,6 +674,8 @@ def build_seed_data() -> tuple[dict[str, list[tuple]], dict[str, int]]:
         gp_name = gp_names.get(race_id)
         if racer_name is None or gp_name is None:
             continue
+        if gp_name not in selected_gp_names:
+            continue
         position = int_or_none(row.get("positionOrder"))
         time_text = clean(row.get("time")) or status_by_id.get(clean(row.get("statusId")), "DNF")
         time_text = time_text[:20] if time_text else None
@@ -667,11 +684,9 @@ def build_seed_data() -> tuple[dict[str, list[tuple]], dict[str, int]]:
         key = (racer_name, gp_name)
         output_row = (racer_name, gp_name, position, time_text, points)
         score = (float(points), -(position or 999), laps)
-        race = races_by_id.get(race_id)
-        race_year = int_or_none(race.get("year")) if race is not None else None
-        race_round = int_or_none(race.get("round")) if race is not None else None
         result_id = int_or_none(row.get("resultId")) or 0
-        sort_key = (race_year or 0, race_round or 0, result_id)
+        race_sort_key = race_sort_keys.get(race_id, (0, 0, 0))
+        sort_key = (*race_sort_key[:2], result_id)
         if key not in balapan_map or score > balapan_map[key][1]:
             balapan_map[key] = (output_row, score, sort_key)
     selected_balapan = sorted(balapan_map.values(), key=lambda item: item[2], reverse=True)[:BALAPAN_ROW_LIMIT]
@@ -679,6 +694,7 @@ def build_seed_data() -> tuple[dict[str, list[tuple]], dict[str, int]]:
     balapan_keys = {(row[0], row[1]) for row in balapan_rows}
 
     awards: set[tuple[str, str, str, str]] = set()
+    most_positions_gained: dict[str, tuple[int, str]] = {}
     for row in results:
         driver_id = clean(row.get("driverId"))
         race_id = clean(row.get("raceId"))
@@ -687,22 +703,25 @@ def build_seed_data() -> tuple[dict[str, list[tuple]], dict[str, int]]:
         if racer_name is None or gp_name is None or (racer_name, gp_name) not in balapan_keys:
             continue
         if int_or_none(row.get("positionOrder")) == 1:
-            awards.add(("Pemenang Balapan", racer_name, gp_name, f"Menang pada {gp_name}."))
+            awards.add(("Driver of the Day", racer_name, gp_name, f"Terpilih sebagai driver of the day pada {gp_name}."))
         if int_or_none(row.get("rank")) == 1:
             lap_time = clean(row.get("fastestLapTime")) or "waktu tercepat"
             awards.add(("Fastest Lap", racer_name, gp_name, f"Mencatat fastest lap {lap_time}."))
-
-    for row in qualifying:
-        if int_or_none(row.get("position")) != 1:
-            continue
-        driver_id = clean(row.get("driverId"))
-        race_id = clean(row.get("raceId"))
-        racer_name = driver_names.get(driver_id or "")
-        gp_name = gp_names.get(race_id or "")
-        if racer_name is None or gp_name is None or (racer_name, gp_name) not in balapan_keys:
-            continue
-        q_time = clean(row.get("q3")) or clean(row.get("q2")) or clean(row.get("q1")) or "waktu terbaik"
-        awards.add(("Pole Position", racer_name, gp_name, f"Start posisi pertama dengan {q_time}."))
+        grid = int_or_none(row.get("grid"))
+        finish = int_or_none(row.get("positionOrder"))
+        if grid is not None and finish is not None and grid > 0:
+            gained = grid - finish
+            if gained > 0 and (gp_name not in most_positions_gained or gained > most_positions_gained[gp_name][0]):
+                most_positions_gained[gp_name] = (gained, racer_name)
+    for gp_name, (gained, racer_name) in most_positions_gained.items():
+        awards.add(
+            (
+                "Most Positions Gained",
+                racer_name,
+                gp_name,
+                f"Naik {gained} posisi dibandingkan posisi start pada {gp_name}.",
+            )
+        )
     penghargaan_rows = sorted(awards, key=lambda row: (row[2], row[0], row[1]))
 
     spesialisasi_rows = []
@@ -723,6 +742,7 @@ def build_seed_data() -> tuple[dict[str, list[tuple]], dict[str, int]]:
                 continue
             selected.add(marshal)
             menjaga_rows.append((gp_name, session_name, marshal))
+    menjaga_rows = menjaga_rows[:MAX_ROWS_PER_TABLE]
 
     rows_by_table = {
         "Negara": negara_rows,
@@ -829,7 +849,7 @@ def write_markdown(counts: dict[str, int]) -> None:
         "| Grand_prix | Tersedia | Dari `races.name`, `races.year`, dan `races.circuitId`. |",
         "| Sesi | Tersedia sebagian | `races.csv` punya tanggal/jam FP, kualifikasi, sprint, dan race; durasi sesi dibuat sintetis standar. |",
         "| Balapan | Tersedia | Dari `results.csv`, join ke `drivers.csv` dan `races.csv`. |",
-        "| Penghargaan | Tidak eksplisit | Diinfer dari `results.csv` dan `qualifying.csv`: pemenang balapan, fastest lap, dan pole position. |",
+        "| Penghargaan | Tidak eksplisit | Diinfer dari `results.csv`: fastest lap, driver of the day, dan most positions gained. |",
         "| Marshal | Tidak tersedia | Dibuat dengan Faker/fallback sintetis. |",
         "| Spesialisasi_marshal | Tidak tersedia | Dibuat sintetis dari daftar spesialisasi marshal. |",
         "| Menjaga | Tidak tersedia | Dibuat sintetis dengan memasangkan marshal ke sesi. |",
